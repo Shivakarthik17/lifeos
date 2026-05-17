@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background-color: #070b1a;
+  color: #e6e9f5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Subtle ambient grid behind the hero */
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(127, 119, 221, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(127, 119, 221, 0.06) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+}
+
+/* Slightly nicer focus rings */
+*:focus-visible {
+  outline: 2px solid #7f77dd;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
