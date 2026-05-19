@@ -4,7 +4,16 @@
       "Bash(npx prisma *)",
       "PowerShell(Resolve-DnsName *)",
       "Bash(npm run *)",
-      "PowerShell(Get-NetTCPConnection *)"
+      "PowerShell(Get-NetTCPConnection *)",
+      "PowerShell(npm install *)",
+      "PowerShell(npx prisma db push 2>&1 | Select-Object -Last 40)",
+      "PowerShell(npx prisma generate 2>&1 | Select-Object -Last 15)",
+      "PowerShell(npm run *)",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:3000/finance\" -MaximumRedirection 0 -ErrorAction Stop; \"STATUS: $\\($r.StatusCode\\)\" } catch { $resp = $_.Exception.Response; \"STATUS: $\\($resp.StatusCode.value__\\)\"; if \\($resp.Headers.Location\\) { \"LOCATION: $\\($resp.Headers.Location\\)\" } })",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:3000/api/finance/transactions\" -ErrorAction Stop; \"TX STATUS: $\\($r.StatusCode\\)\" } catch { \"TX STATUS: $\\($_.Exception.Response.StatusCode.value__\\)\" }; try { $r = Invoke-WebRequest -Uri \"http://localhost:3000/api/finance/budget\" -ErrorAction Stop; \"BG STATUS: $\\($r.StatusCode\\)\" } catch { \"BG STATUS: $\\($_.Exception.Response.StatusCode.value__\\)\" })",
+      "PowerShell(Probe *)",
+      "Bash(node *)",
+      "PowerShell(Probe PATCH *)"
     ]
   }
 }
