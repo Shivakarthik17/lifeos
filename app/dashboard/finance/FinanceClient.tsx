@@ -101,7 +101,6 @@ export default function FinanceClient() {
   const [editSubmitting, setEditSubmitting] = useState(false);
 
   const fetchAll = useCallback(async () => {
-    setLoading(true);
     setError(null);
     try {
       const [txRes, bRes] = await Promise.all([
@@ -116,14 +115,35 @@ export default function FinanceClient() {
       setBudgets(bJson.budgets ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
-    } finally {
-      setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const [txRes, bRes] = await Promise.all([
+          fetch("/api/finance/transactions", { cache: "no-store" }),
+          fetch("/api/finance/budget", { cache: "no-store" }),
+        ]);
+        if (!txRes.ok) throw new Error("Failed to load transactions");
+        if (!bRes.ok) throw new Error("Failed to load budgets");
+        const txJson = await txRes.json();
+        const bJson = await bRes.json();
+        if (cancelled) return;
+        setTransactions(txJson.transactions ?? []);
+        setBudgets(bJson.budgets ?? []);
+      } catch (e) {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : "Failed to load");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const monthTx = useMemo(
     () => transactions.filter((t) => isCurrentMonth(t.date, currentMonth, currentYear)),
@@ -468,7 +488,7 @@ export default function FinanceClient() {
                     borderRadius: 8,
                     color: "#fff",
                   }}
-                  formatter={(v: number) => formatCurrency(v)}
+                  formatter={(v) => formatCurrency(typeof v === "number" ? v : Number(v) || 0)}
                 />
                 <Bar dataKey="amount" radius={[6, 6, 0, 0]} fill="#7F77DD" />
               </BarChart>
