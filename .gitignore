@@ -36,3 +36,5 @@ yarn-error.log*
 next-env.d.ts
 "service creds.txt" 
 service creds.txt 
+
+/app/generated/prisma
