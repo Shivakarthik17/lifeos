@@ -25,6 +25,10 @@ model User {
   sleepLogs     SleepLog[]
   weightLogs    WeightLog[]
   calorieLogs   CalorieLog[]
+  meditationLogs MeditationLog[]
+  journalEntries JournalEntry[]
+  focusSessions  FocusSession[]
+  screenTimeLogs ScreenTimeLog[]
 }
 
 model Workout {
@@ -111,6 +115,43 @@ model Session {
   userId       String
   expires      DateTime
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model MeditationLog {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @default(now())
+  minutes   Int
+  notes     String?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model JournalEntry {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @default(now())
+  content   String
+  mood      Int
+  grateful  String?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model FocusSession {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @default(now())
+  minutes   Int
+  task      String?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ScreenTimeLog {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @default(now())
+  minutes   Int
+  app       String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model VerificationToken {
