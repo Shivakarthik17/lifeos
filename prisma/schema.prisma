@@ -29,6 +29,13 @@ model User {
   journalEntries JournalEntry[]
   focusSessions  FocusSession[]
   screenTimeLogs ScreenTimeLog[]
+  goals          Goal[]
+  businessIdeas  BusinessIdea[]
+  tasks          Task[]
+  investments    Investment[]
+  habits         Habit[]
+  habitCheckIns  HabitCheckIn[]
+  dailyRoutines  DailyRoutine[]
 }
 
 model Workout {
@@ -160,4 +167,86 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+model Goal {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  category    String
+  targetDate  DateTime?
+  status      String   @default("active")
+  progress    Int      @default(0)
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model BusinessIdea {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  category    String
+  status      String   @default("idea")
+  notes       String?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Task {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  category    String
+  priority    String   @default("medium")
+  status      String   @default("pending")
+  dueDate     DateTime?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Investment {
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  type         String
+  amount       Float
+  currentValue Float?
+  date         DateTime @default(now())
+  notes        String?
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Habit {
+  id          String         @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  frequency   String         @default("daily")
+  color       String         @default("#7F77DD")
+  createdAt   DateTime       @default(now())
+  checkIns    HabitCheckIn[]
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model HabitCheckIn {
+  id      String   @id @default(cuid())
+  habitId String
+  userId  String
+  date    DateTime @default(now())
+  habit   Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DailyRoutine {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @default(now())
+  wakeTime  String?
+  sleepTime String?
+  rating    Int      @default(5)
+  notes     String?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
