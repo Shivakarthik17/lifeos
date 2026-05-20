@@ -21,6 +21,46 @@ model User {
   sessions      Session[]
   transactions  Transaction[]
   budgets       Budget[]
+  workouts      Workout[]
+  sleepLogs     SleepLog[]
+  weightLogs    WeightLog[]
+  calorieLogs   CalorieLog[]
+}
+
+model Workout {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @default(now())
+  exercises Json
+  duration  Int
+  notes     String?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SleepLog {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @default(now())
+  hours     Float
+  quality   Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model WeightLog {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @default(now())
+  weight    Float
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CalorieLog {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @default(now())
+  calories  Int
+  meal      String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Transaction {
