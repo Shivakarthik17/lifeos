@@ -36,6 +36,10 @@ model User {
   habits         Habit[]
   habitCheckIns  HabitCheckIn[]
   dailyRoutines  DailyRoutine[]
+  contacts       Contact[]
+  interactions   Interaction[]
+  communicationChallenges CommunicationChallenge[]
+  socialEnergyLogs SocialEnergyLog[]
 }
 
 model Workout {
@@ -247,6 +251,51 @@ model DailyRoutine {
   wakeTime  String?
   sleepTime String?
   rating    Int      @default(5)
+  notes     String?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Contact {
+  id           String        @id @default(cuid())
+  userId       String
+  name         String
+  relationship String
+  phone        String?
+  email        String?
+  notes        String?
+  priority     String        @default("medium")
+  createdAt    DateTime      @default(now())
+  interactions Interaction[]
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Interaction {
+  id        String   @id @default(cuid())
+  userId    String
+  contactId String
+  date      DateTime @default(now())
+  type      String
+  notes     String?
+  mood      String?
+  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CommunicationChallenge {
+  id          String   @id @default(cuid())
+  userId      String
+  date        DateTime @default(now())
+  challenge   String
+  completed   Boolean  @default(false)
+  notes       String?
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SocialEnergyLog {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @default(now())
+  energy    Int
   notes     String?
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
