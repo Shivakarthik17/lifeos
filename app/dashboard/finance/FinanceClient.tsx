@@ -97,6 +97,31 @@ function startOfDay(d: Date) {
   return r;
 }
 
+function dayHeaderLabel(key: string) {
+  const [yy, mm, dd] = key.split("-").map(Number);
+  const d = new Date(yy, mm - 1, dd);
+  const today = startOfDay(new Date());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const dateStr = d.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+  if (d.getTime() === today.getTime()) return `Today — ${dateStr}`;
+  if (d.getTime() === yesterday.getTime()) return `Yesterday — ${dateStr}`;
+  return dateStr;
+}
+
+function daysAgoInputValue(n: number) {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 export default function FinanceClient() {
   const now = new Date();
   const currentMonth = now.getMonth() + 1;
@@ -139,6 +164,12 @@ export default function FinanceClient() {
 
   // Time-range chart state
   const [timeRange, setTimeRange] = useState<TimeRange>("month");
+
+  // Date-specific pie chart state
+  const [dateChartMode, setDateChartMode] = useState<"single" | "range">("single");
+  const [chartSingleDate, setChartSingleDate] = useState(todayInputValue());
+  const [chartRangeFrom, setChartRangeFrom] = useState(() => daysAgoInputValue(6));
+  const [chartRangeTo, setChartRangeTo] = useState(todayInputValue());
 
   const fetchAll = useCallback(async () => {
     setError(null);
@@ -241,6 +272,107 @@ export default function FinanceClient() {
       return true;
     });
   }, [transactions, search, filterFromDate, filterToDate, filterType, filterCategory]);
+
+  const groupedTransactions = useMemo(() => {
+    const groups = new Map<
+      string,
+      { items: Transaction[]; income: number; expenses: number }
+    >();
+    for (const t of filteredTransactions) {
+      const key = toInputDate(t.date);
+      let g = groups.get(key);
+      if (!g) {
+        g = { items: [], income: 0, expenses: 0 };
+        groups.set(key, g);
+      }
+      g.items.push(t);
+      if (t.type === "income") g.income += t.amount;
+      else if (t.type === "expense") g.expenses += t.amount;
+    }
+    return Array.from(groups.entries())
+      .sort((a, b) => (a[0] < b[0] ? 1 : a[0] > b[0] ? -1 : 0))
+      .map(([key, val]) => ({
+        key,
+        items: val.items.slice().sort(
+          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+        ),
+        income: Math.round(val.income * 100) / 100,
+        expenses: Math.round(val.expenses * 100) / 100,
+        net: Math.round((val.income - val.expenses) * 100) / 100,
+      }));
+  }, [filteredTransactions]);
+
+  const dateChartData = useMemo(() => {
+    const empty = {
+      pieData: [] as { category: string; amount: number }[],
+      income: 0,
+      expenses: 0,
+      label: "",
+      invalid: false,
+    };
+    let fromTs: number;
+    let toTs: number;
+    let label: string;
+    if (dateChartMode === "single") {
+      if (!chartSingleDate) return empty;
+      const start = new Date(chartSingleDate);
+      start.setHours(0, 0, 0, 0);
+      fromTs = start.getTime();
+      toTs = fromTs + 86400000 - 1;
+      label = start.toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      });
+    } else {
+      if (!chartRangeFrom || !chartRangeTo) return empty;
+      const start = new Date(chartRangeFrom);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(chartRangeTo);
+      end.setHours(23, 59, 59, 999);
+      if (start.getTime() > end.getTime()) {
+        return { ...empty, invalid: true, label: "From date is after To date" };
+      }
+      fromTs = start.getTime();
+      toTs = end.getTime();
+      const fmt = (d: Date) =>
+        d.toLocaleDateString("en-IN", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        });
+      label = `${fmt(start)} – ${fmt(end)}`;
+    }
+
+    let income = 0;
+    let expenses = 0;
+    const catMap = new Map<string, number>();
+    for (const t of transactions) {
+      const ts = new Date(t.date).getTime();
+      if (ts < fromTs || ts > toTs) continue;
+      if (t.type === "income") {
+        income += t.amount;
+      } else if (t.type === "expense") {
+        expenses += t.amount;
+        catMap.set(t.category, (catMap.get(t.category) ?? 0) + t.amount);
+      }
+    }
+
+    const pieData = Array.from(catMap.entries())
+      .filter(([, amt]) => amt > 0)
+      .map(([category, amount]) => ({
+        category,
+        amount: Math.round(amount * 100) / 100,
+      }));
+
+    return {
+      pieData,
+      income: Math.round(income * 100) / 100,
+      expenses: Math.round(expenses * 100) / 100,
+      label,
+      invalid: false,
+    };
+  }, [transactions, dateChartMode, chartSingleDate, chartRangeFrom, chartRangeTo]);
 
   const timeSeriesData = useMemo(() => {
     const today = startOfDay(new Date());
@@ -709,6 +841,145 @@ export default function FinanceClient() {
         </div>
       </section>
 
+      {/* Date-specific breakdown */}
+      <section className="rounded-2xl border border-border/60 bg-surface/60 p-5 shadow-card">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-base font-semibold text-white">Date-specific breakdown</h2>
+          <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-surface-2/40 p-1">
+            {(["single", "range"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setDateChartMode(m)}
+                className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                  dateChartMode === m
+                    ? "bg-accent text-white"
+                    : "text-muted hover:text-white"
+                }`}
+              >
+                {m === "single" ? "Single Day" : "Date Range"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {dateChartMode === "single" ? (
+            <Field label="Date">
+              <input
+                type="date"
+                value={chartSingleDate}
+                onChange={(e) => setChartSingleDate(e.target.value)}
+                className={inputClass}
+              />
+            </Field>
+          ) : (
+            <>
+              <Field label="From date">
+                <input
+                  type="date"
+                  value={chartRangeFrom}
+                  onChange={(e) => setChartRangeFrom(e.target.value)}
+                  className={inputClass}
+                />
+              </Field>
+              <Field label="To date">
+                <input
+                  type="date"
+                  value={chartRangeTo}
+                  onChange={(e) => setChartRangeTo(e.target.value)}
+                  className={inputClass}
+                />
+              </Field>
+            </>
+          )}
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-4 text-sm">
+          <span className="text-xs uppercase tracking-wider text-muted">
+            {dateChartData.label || "Pick a date"}
+          </span>
+          <span className="text-emerald-300">
+            Earned {formatCurrency(dateChartData.income)}
+          </span>
+          <span className="text-rose-300">
+            Spent {formatCurrency(dateChartData.expenses)}
+          </span>
+        </div>
+
+        <div className="mt-4 h-72 w-full">
+          {loading ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted">
+              Loading…
+            </div>
+          ) : dateChartData.invalid ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted">
+              {dateChartData.label}
+            </div>
+          ) : dateChartData.pieData.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted">
+              No expenses for this {dateChartMode === "single" ? "day" : "range"}.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={dateChartData.pieData}
+                  dataKey="amount"
+                  nameKey="category"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={90}
+                  innerRadius={40}
+                  paddingAngle={2}
+                  label={({ percent }) =>
+                    `${((percent ?? 0) * 100).toFixed(0)}%`
+                  }
+                  labelLine={false}
+                >
+                  {dateChartData.pieData.map((entry) => (
+                    <Cell
+                      key={entry.category}
+                      fill={CATEGORY_COLORS[entry.category] ?? "#7F77DD"}
+                    />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{
+                    background: "#0E1430",
+                    border: "1px solid #1F2A52",
+                    borderRadius: 8,
+                    color: "#fff",
+                  }}
+                  formatter={(value, _name, entry) => {
+                    const v = typeof value === "number" ? value : Number(value) || 0;
+                    const total = dateChartData.expenses;
+                    const pct = total > 0 ? (v / total) * 100 : 0;
+                    const cat =
+                      (entry && (entry as { payload?: { category?: string } }).payload?.category) ??
+                      "";
+                    return [`${formatCurrency(v)} (${pct.toFixed(1)}%)`, cat];
+                  }}
+                />
+                <Legend
+                  verticalAlign="bottom"
+                  height={36}
+                  formatter={(value, entry) => {
+                    const p = (entry as { payload?: { amount?: number } }).payload;
+                    const amt = p?.amount ?? 0;
+                    return (
+                      <span className="text-xs text-white">
+                        {value} · {formatCurrency(amt)}
+                      </span>
+                    );
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </section>
+
       {/* Spending over time */}
       <section className="rounded-2xl border border-border/60 bg-surface/60 p-5 shadow-card">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -935,68 +1206,93 @@ export default function FinanceClient() {
         ) : filteredTransactions.length === 0 ? (
           <p className="mt-4 text-sm text-muted">No transactions match these filters.</p>
         ) : (
-          <ul className="mt-4 divide-y divide-border/60">
-            {filteredTransactions.map((t) => {
-              const color = CATEGORY_COLORS[t.category] ?? "#7F77DD";
-              return (
-                <li
-                  key={t.id}
-                  className="flex flex-wrap items-center justify-between gap-3 py-3"
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span
-                      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-xs font-semibold uppercase text-white"
-                      style={{ background: `${color}33`, color }}
-                    >
-                      {t.category.slice(0, 2)}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-white">
-                        {t.description?.trim() || t.category}
-                      </p>
-                      <p className="text-xs text-muted">
-                        {t.category} ·{" "}
-                        {new Date(t.date).toLocaleDateString(undefined, {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        })}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span
-                      className={`text-sm font-semibold ${
-                        t.type === "income" ? "text-emerald-300" : "text-rose-300"
-                      }`}
-                    >
-                      {t.type === "income" ? "+" : "−"}
-                      {formatCurrency(t.amount)}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => openEdit(t)}
-                      aria-label="Edit transaction"
-                      title="Edit"
-                      className="rounded-lg p-1.5 text-muted transition-colors hover:bg-white/5 hover:text-white"
-                    >
-                      <PencilIcon className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(t)}
-                      disabled={deletingId === t.id}
-                      aria-label="Delete transaction"
-                      title="Delete"
-                      className="rounded-lg p-1.5 text-muted transition-colors hover:bg-rose-500/10 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <TrashIcon className="h-4 w-4" />
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="mt-4 space-y-6">
+            {groupedTransactions.map((group) => (
+              <div key={group.key}>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2">
+                  <h3 className="text-sm font-semibold text-white">
+                    {dayHeaderLabel(group.key)}
+                  </h3>
+                  <span className="text-xs text-muted">
+                    {group.items.length} txn{group.items.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <ul className="divide-y divide-border/60">
+                  {group.items.map((t) => {
+                    const color = CATEGORY_COLORS[t.category] ?? "#7F77DD";
+                    return (
+                      <li
+                        key={t.id}
+                        className="flex flex-wrap items-center justify-between gap-3 py-3"
+                      >
+                        <div className="flex min-w-0 items-center gap-3">
+                          <span
+                            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-xs font-semibold uppercase text-white"
+                            style={{ background: `${color}33`, color }}
+                          >
+                            {t.category.slice(0, 2)}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-white">
+                              {t.description?.trim() || t.category}
+                            </p>
+                            <p className="text-xs text-muted">{t.category}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span
+                            className={`text-sm font-semibold ${
+                              t.type === "income" ? "text-emerald-300" : "text-rose-300"
+                            }`}
+                          >
+                            {t.type === "income" ? "+" : "−"}
+                            {formatCurrency(t.amount)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => openEdit(t)}
+                            aria-label="Edit transaction"
+                            title="Edit"
+                            className="rounded-lg p-1.5 text-muted transition-colors hover:bg-white/5 hover:text-white"
+                          >
+                            <PencilIcon className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(t)}
+                            disabled={deletingId === t.id}
+                            aria-label="Delete transaction"
+                            title="Delete"
+                            className="rounded-lg p-1.5 text-muted transition-colors hover:bg-rose-500/10 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <TrashIcon className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-surface-2/40 px-3 py-2 text-xs">
+                  <span className="text-muted">Day total:</span>
+                  <span className="text-emerald-300">
+                    Income {formatCurrency(group.income)}
+                  </span>
+                  <span className="text-muted">|</span>
+                  <span className="text-rose-300">
+                    Expenses {formatCurrency(group.expenses)}
+                  </span>
+                  <span className="text-muted">|</span>
+                  <span
+                    className={
+                      group.net >= 0 ? "text-emerald-300" : "text-rose-300"
+                    }
+                  >
+                    Net {formatCurrency(group.net)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </section>
 
