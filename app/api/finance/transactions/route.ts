@@ -136,10 +136,13 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { id, category, description } = (body ?? {}) as {
+  const { id, category, description, amount, type, date } = (body ?? {}) as {
     id?: unknown;
     category?: unknown;
     description?: unknown;
+    amount?: unknown;
+    type?: unknown;
+    date?: unknown;
   };
 
   if (typeof id !== "string" || !id) {
@@ -152,15 +155,46 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Invalid description" }, { status: 400 });
   }
 
+  const data: {
+    category: string;
+    description: string | null;
+    amount?: number;
+    type?: string;
+    date?: Date;
+  } = {
+    category: category.trim(),
+    description:
+      typeof description === "string" && description.trim()
+        ? description.trim()
+        : null,
+  };
+
+  if (amount !== undefined) {
+    const amountNum = typeof amount === "number" ? amount : Number(amount);
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+      return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
+    }
+    data.amount = amountNum;
+  }
+
+  if (type !== undefined) {
+    if (typeof type !== "string" || !VALID_TYPES.has(type)) {
+      return NextResponse.json({ error: "Invalid type" }, { status: 400 });
+    }
+    data.type = type;
+  }
+
+  if (date !== undefined) {
+    const parsedDate = new Date(date as string);
+    if (Number.isNaN(parsedDate.getTime())) {
+      return NextResponse.json({ error: "Invalid date" }, { status: 400 });
+    }
+    data.date = parsedDate;
+  }
+
   const result = await prisma.transaction.updateMany({
     where: { id, userId: user.id },
-    data: {
-      category: category.trim(),
-      description:
-        typeof description === "string" && description.trim()
-          ? description.trim()
-          : null,
-    },
+    data,
   });
   if (result.count === 0) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });

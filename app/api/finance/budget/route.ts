@@ -52,7 +52,17 @@ export async function POST(req: Request) {
     year?: unknown;
   };
 
-  if (typeof category !== "string" || !category.trim()) {
+  const VALID_CATEGORIES = new Set([
+    "All",
+    "Food",
+    "Transport",
+    "Shopping",
+    "Bills",
+    "Health",
+    "Entertainment",
+    "Other",
+  ]);
+  if (typeof category !== "string" || !VALID_CATEGORIES.has(category.trim())) {
     return NextResponse.json({ error: "Invalid category" }, { status: 400 });
   }
   const amountNum = typeof amount === "number" ? amount : Number(amount);
