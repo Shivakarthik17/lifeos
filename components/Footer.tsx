@@ -38,6 +38,9 @@ export default function Footer() {
           <a href="#waitlist" className="transition-colors hover:text-white">
             Waitlist
           </a>
+          <Link href="/login" className="transition-colors hover:text-white">
+            Sign in
+          </Link>
           <a href="#" className="transition-colors hover:text-white">
             Privacy
           </a>

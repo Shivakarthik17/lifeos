@@ -5,6 +5,9 @@ import { getDashboardData, type ModuleKey } from "@/lib/dashboard";
 import LifeScoreTrend from "./LifeScoreTrend";
 import AICoach from "./AICoach";
 
+// Cache the rendered dashboard for 60s to reduce repeated DB reads.
+export const revalidate = 60;
+
 function getGreeting(hour: number) {
   if (hour < 12) return "Good morning";
   if (hour < 18) return "Good afternoon";

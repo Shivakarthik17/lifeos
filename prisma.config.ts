@@ -4,12 +4,25 @@ import dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 import { defineConfig } from "prisma/config";
 
+/**
+ * Append connection-pooling hints to the Supabase URL when they're missing.
+ * `pgbouncer=true` makes Prisma safe behind Supabase's pooler (disables
+ * prepared statements) and `connection_limit=1` keeps serverless functions
+ * from exhausting the pool. Idempotent — won't double-add if already present.
+ */
+function withPoolingHints(url?: string): string | undefined {
+  if (!url) return url;
+  if (url.includes("pgbouncer")) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}pgbouncer=true&connection_limit=1`;
+}
+
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
+    url: withPoolingHints(process.env["DATABASE_URL"]),
   },
 });

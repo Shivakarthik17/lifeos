@@ -1,7 +1,17 @@
+import { Suspense } from "react";
 import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import Sidebar from "./Sidebar";
+import BottomNav from "./BottomNav";
+
+function ContentFallback() {
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-accent" />
+    </div>
+  );
+}
 
 export default async function DashboardLayout({
   children,
@@ -14,7 +24,11 @@ export default async function DashboardLayout({
   return (
     <div className="min-h-screen bg-background text-white">
       <Sidebar />
-      <main className="md:ml-[220px]">{children}</main>
+      {/* Extra bottom padding on mobile so content clears the bottom nav. */}
+      <main className="pb-20 md:ml-[220px] md:pb-0">
+        <Suspense fallback={<ContentFallback />}>{children}</Suspense>
+      </main>
+      <BottomNav />
     </div>
   );
 }
