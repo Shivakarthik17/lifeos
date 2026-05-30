@@ -4,13 +4,15 @@ import { prisma } from "@/lib/prisma";
  * Real dashboard engine for LifeOS.
  *
  * Reads the user's actual data from every module and turns it into:
- *  - a score (0-100) per module
+ *  - a score (0-100) per module for today
  *  - one overall Life Score
  *  - a short, human status line per module
- *  - a data-driven "daily brief" (no AI key needed)
+ *  - a 7-day Life Score trend (one score per day)
+ *  - a data-driven "daily brief" that targets the weakest module
  *
  * Everything here is plain rules + math on real database rows.
- * When an AI model is added later, it can reuse this same data.
+ * Each day's score is computed using only the data available up to that day,
+ * so the trend is historically honest.
  */
 
 export type ModuleKey =
@@ -29,9 +31,17 @@ export interface ModuleResult {
   status: string;
 }
 
+export interface TrendPoint {
+  /** short label for the X axis, e.g. "Mon 26" */
+  label: string;
+  /** Life Score that day, or null when nothing was tracked */
+  score: number | null;
+}
+
 export interface DashboardData {
   lifeScore: number;
   modules: Record<ModuleKey, ModuleResult>;
+  trend: TrendPoint[];
   brief: string;
 }
 
@@ -39,95 +49,181 @@ const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 const avg = (nums: number[]) =>
   nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
 
+function startOfDay(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+function addDays(d: Date, n: number) {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  return x;
+}
 function dayKey(d: Date) {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
+// ---------- raw data shape (only the fields we read) ----------
+
+interface RawData {
+  transactions: { type: string; amount: number; date: Date }[];
+  workouts: { date: Date }[];
+  sleepLogs: { date: Date; hours: number }[];
+  medLogs: { date: Date }[];
+  journal: { date: Date; mood: number }[];
+  habits: { id: string; frequency: string; createdAt: Date }[];
+  checkIns: { habitId: string; date: Date }[];
+  goals: { status: string; progress: number; createdAt: Date }[];
+  tasks: { status: string; createdAt: Date }[];
+  interactions: { date: Date; contactId: string }[];
+  contacts: { id: string; name: string; priority: string; createdAt: Date }[];
+}
+
 export async function getDashboardData(email: string): Promise<DashboardData> {
-  const user = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true },
-  });
+  try {
+    if (!email) return safeDefault();
 
-  if (!user) {
-    return emptyDashboard();
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+    if (!user?.id) return safeDefault();
+    const userId = user.id;
+
+    const today = startOfDay(new Date());
+    // Widest window we need: a 30-day window ending on the oldest trend day
+    // (6 days ago) reaches back 36 days. Fetch a little extra to be safe.
+    const since = addDays(today, -40);
+
+    // Each query is wrapped so that one failing model never takes the whole
+    // dashboard down — it just contributes empty data for that module.
+    const [
+      transactions,
+      workouts,
+      sleepLogs,
+      medLogs,
+      journal,
+      habits,
+      checkIns,
+      goals,
+      tasks,
+      interactions,
+      contacts,
+    ] = await Promise.all([
+      safeQuery(() => prisma.transaction.findMany({ where: { userId, date: { gte: since } } })),
+      safeQuery(() => prisma.workout.findMany({ where: { userId, date: { gte: since } } })),
+      safeQuery(() => prisma.sleepLog.findMany({ where: { userId, date: { gte: since } } })),
+      safeQuery(() => prisma.meditationLog.findMany({ where: { userId, date: { gte: since } } })),
+      safeQuery(() => prisma.journalEntry.findMany({ where: { userId, date: { gte: since } } })),
+      safeQuery(() => prisma.habit.findMany({ where: { userId } })),
+      safeQuery(() => prisma.habitCheckIn.findMany({ where: { userId, date: { gte: since } } })),
+      safeQuery(() => prisma.goal.findMany({ where: { userId } })),
+      safeQuery(() => prisma.task.findMany({ where: { userId } })),
+      safeQuery(() => prisma.interaction.findMany({ where: { userId, date: { gte: since } } })),
+      safeQuery(() => prisma.contact.findMany({ where: { userId } })),
+    ]);
+
+    const raw: RawData = {
+      transactions: transactions ?? [],
+      workouts: workouts ?? [],
+      sleepLogs: sleepLogs ?? [],
+      medLogs: medLogs ?? [],
+      journal: journal ?? [],
+      habits: habits ?? [],
+      checkIns: checkIns ?? [],
+      goals: goals ?? [],
+      tasks: tasks ?? [],
+      interactions: interactions ?? [],
+      contacts: contacts ?? [],
+    };
+
+    // Today's full breakdown.
+    const modules = computeModules(raw, today);
+    const lifeScore = lifeScoreFrom(modules);
+
+    // 7-day trend (oldest -> newest), one score per day.
+    const trend: TrendPoint[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const day = addDays(today, -i);
+      const dayModules = computeModules(raw, day);
+      const dayScored = scoresOf(dayModules);
+      trend.push({
+        label: day.toLocaleDateString("en-US", { weekday: "short", day: "numeric" }),
+        score: dayScored.length ? clamp(avg(dayScored)) : null,
+      });
+    }
+
+    return { lifeScore, modules, trend, brief: buildBrief(modules, lifeScore) };
+  } catch (error) {
+    console.error("Dashboard data error:", error);
+    return safeDefault();
   }
-  const userId = user.id;
+}
 
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const weekAgo = new Date(startOfToday);
-  weekAgo.setDate(weekAgo.getDate() - 6); // last 7 days, including today
-  const thirtyAgo = new Date(startOfToday);
-  thirtyAgo.setDate(thirtyAgo.getDate() - 29);
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+/**
+ * Runs a single Prisma query and never throws.
+ * On any failure it logs and returns an empty array, so one broken
+ * model degrades gracefully instead of crashing the whole page.
+ */
+async function safeQuery<T>(fn: () => Promise<T[]>): Promise<T[]> {
+  try {
+    const result = await fn();
+    return Array.isArray(result) ? result : [];
+  } catch (error) {
+    console.error("Dashboard query failed:", error);
+    return [];
+  }
+}
 
-  // Pull everything we need in parallel.
-  const [
-    monthTx,
-    workouts,
-    sleepLogs,
-    medLogs30,
-    journal7,
-    habits,
-    checkIns7,
-    goals,
-    tasks,
-    interactions30,
-    contacts,
-  ] = await Promise.all([
-    prisma.transaction.findMany({
-      where: { userId, date: { gte: monthStart, lt: monthEnd } },
-    }),
-    prisma.workout.findMany({
-      where: { userId, date: { gte: weekAgo } },
-    }),
-    prisma.sleepLog.findMany({
-      where: { userId, date: { gte: weekAgo } },
-    }),
-    prisma.meditationLog.findMany({
-      where: { userId, date: { gte: thirtyAgo } },
-      orderBy: { date: "desc" },
-    }),
-    prisma.journalEntry.findMany({
-      where: { userId, date: { gte: weekAgo } },
-    }),
-    prisma.habit.findMany({ where: { userId } }),
-    prisma.habitCheckIn.findMany({
-      where: { userId, date: { gte: weekAgo } },
-    }),
-    prisma.goal.findMany({ where: { userId } }),
-    prisma.task.findMany({ where: { userId } }),
-    prisma.interaction.findMany({
-      where: { userId, date: { gte: thirtyAgo } },
-      orderBy: { date: "desc" },
-    }),
-    prisma.contact.findMany({ where: { userId } }),
-  ]);
+// ---------- compute all modules as of a reference day ----------
 
-  const finance = scoreFinance(monthTx);
-  const fitness = scoreFitness(workouts, sleepLogs);
-  const mind = scoreMind(medLogs30, journal7, startOfToday);
-  const business = scoreBusiness(goals, tasks);
-  const discipline = scoreDiscipline(habits, checkIns7);
-  const people = scorePeople(interactions30, contacts, startOfToday);
+function computeModules(raw: RawData, ref: Date): Record<ModuleKey, ModuleResult> {
+  const endEx = addDays(ref, 1); // include all of the reference day
+  const weekStart = addDays(ref, -6); // 7-day window ending on ref
+  const monthStart = addDays(ref, -29); // 30-day window ending on ref
 
-  const modules: Record<ModuleKey, ModuleResult> = {
-    finance,
-    fitness,
-    mind,
-    business,
-    discipline,
-    people,
+  const inWindow = (d: Date, start: Date) => {
+    const t = new Date(d);
+    return t >= start && t < endEx;
   };
+  const createdBy = (d: Date) => new Date(d) < endEx;
 
-  const scored = Object.values(modules)
+  const finance = scoreFinance(
+    raw.transactions.filter((t) => inWindow(t.date, monthStart))
+  );
+  const fitness = scoreFitness(
+    raw.workouts.filter((w) => inWindow(w.date, weekStart)),
+    raw.sleepLogs.filter((s) => inWindow(s.date, weekStart))
+  );
+  const mind = scoreMind(
+    raw.medLogs.filter((m) => inWindow(m.date, monthStart)),
+    raw.journal.filter((j) => inWindow(j.date, weekStart)),
+    ref
+  );
+  const business = scoreBusiness(
+    raw.goals.filter((g) => createdBy(g.createdAt)),
+    raw.tasks.filter((t) => createdBy(t.createdAt))
+  );
+  const discipline = scoreDiscipline(
+    raw.habits.filter((h) => createdBy(h.createdAt)),
+    raw.checkIns.filter((c) => inWindow(c.date, weekStart))
+  );
+  const people = scorePeople(
+    raw.interactions.filter((i) => inWindow(i.date, monthStart)),
+    raw.contacts.filter((c) => createdBy(c.createdAt)),
+    ref
+  );
+
+  return { finance, fitness, mind, business, discipline, people };
+}
+
+function scoresOf(modules: Record<ModuleKey, ModuleResult>): number[] {
+  return Object.values(modules)
     .map((m) => m.score)
     .filter((s): s is number => s !== null);
-  const lifeScore = scored.length ? clamp(avg(scored)) : 0;
+}
 
-  return { lifeScore, modules, brief: buildBrief(modules, lifeScore) };
+function lifeScoreFrom(modules: Record<ModuleKey, ModuleResult>): number {
+  const scored = scoresOf(modules);
+  return scored.length ? clamp(avg(scored)) : 0;
 }
 
 // ---------- per-module scoring ----------
@@ -141,7 +237,7 @@ function scoreFinance(tx: { type: string; amount: number }[]): ModuleResult {
   }
 
   if (tx.length === 0) {
-    return { key: "finance", score: null, status: "No transactions yet this month" };
+    return { key: "finance", score: null, status: "No transactions in the last 30 days" };
   }
 
   if (income > 0) {
@@ -151,7 +247,7 @@ function scoreFinance(tx: { type: string; amount: number }[]): ModuleResult {
     return {
       key: "finance",
       score: clamp(rate * 250),
-      status: `${pct}% of income saved this month`,
+      status: `${pct}% of income saved (30 days)`,
     };
   }
 
@@ -163,7 +259,7 @@ function scoreFinance(tx: { type: string; amount: number }[]): ModuleResult {
 }
 
 function scoreFitness(
-  workouts: { id: string }[],
+  workouts: { date: Date }[],
   sleep: { hours: number }[]
 ): ModuleResult {
   const workoutCount = workouts.length;
@@ -181,8 +277,7 @@ function scoreFitness(
     parts.push(clamp(100 - Math.abs(avgSleep - 7.5) * 20));
   }
 
-  const sleepNote =
-    avgSleep !== null ? `, avg ${avgSleep.toFixed(1)}h sleep` : "";
+  const sleepNote = avgSleep !== null ? `, avg ${avgSleep.toFixed(1)}h sleep` : "";
   return {
     key: "fitness",
     score: clamp(avg(parts)),
@@ -191,29 +286,25 @@ function scoreFitness(
 }
 
 function scoreMind(
-  medLogs30: { date: Date }[],
-  journal7: { mood: number }[],
-  startOfToday: Date
+  medLogs: { date: Date }[],
+  journal: { mood: number }[],
+  ref: Date
 ): ModuleResult {
-  // Meditation streak: consecutive days up to today.
-  const medDays = new Set(medLogs30.map((m) => dayKey(new Date(m.date))));
+  // Meditation streak: consecutive days up to the reference day.
+  const medDays = new Set(medLogs.map((m) => dayKey(new Date(m.date))));
   let streak = 0;
-  const cursor = new Date(startOfToday);
+  const cursor = new Date(ref);
   while (medDays.has(dayKey(cursor))) {
     streak += 1;
     cursor.setDate(cursor.getDate() - 1);
   }
 
-  const med7 = medLogs30.filter((m) => {
-    const d = new Date(m.date);
-    const weekAgo = new Date(startOfToday);
-    weekAgo.setDate(weekAgo.getDate() - 6);
-    return d >= weekAgo;
-  });
+  const weekStart = addDays(ref, -6);
+  const med7 = medLogs.filter((m) => new Date(m.date) >= weekStart);
   const medDaysThisWeek = new Set(med7.map((m) => dayKey(new Date(m.date)))).size;
 
-  const hasMood = journal7.length > 0;
-  const moodAvg = hasMood ? avg(journal7.map((j) => j.mood)) : null;
+  const hasMood = journal.length > 0;
+  const moodAvg = hasMood ? avg(journal.map((j) => j.mood)) : null;
 
   if (med7.length === 0 && !hasMood) {
     return { key: "mind", score: null, status: "Log meditation or a journal entry" };
@@ -287,23 +378,21 @@ function scoreDiscipline(
 }
 
 function scorePeople(
-  interactions30: { date: Date; contactId: string }[],
+  interactions: { date: Date; contactId: string }[],
   contacts: { id: string; name: string; priority: string }[],
-  startOfToday: Date
+  ref: Date
 ): ModuleResult {
   if (contacts.length === 0) {
     return { key: "people", score: null, status: "Add a contact to nurture" };
   }
 
-  const weekAgo = new Date(startOfToday);
-  weekAgo.setDate(weekAgo.getDate() - 6);
-  const interactions7 = interactions30.filter((i) => new Date(i.date) >= weekAgo);
+  const weekStart = addDays(ref, -6);
+  const interactions7 = interactions.filter((i) => new Date(i.date) >= weekStart);
 
   // Find a high-priority contact not reached in the last 14 days.
-  const fourteenAgo = new Date(startOfToday);
-  fourteenAgo.setDate(fourteenAgo.getDate() - 14);
+  const fourteenAgo = addDays(ref, -13);
   const recentContactIds = new Set(
-    interactions30
+    interactions
       .filter((i) => new Date(i.date) >= fourteenAgo)
       .map((i) => i.contactId)
   );
@@ -321,7 +410,7 @@ function scorePeople(
   return { key: "people", score, status };
 }
 
-// ---------- daily brief (rules-based, no AI yet) ----------
+// ---------- daily brief (rules-based, targets the weakest module) ----------
 
 const LABELS: Record<ModuleKey, string> = {
   finance: "Finance",
@@ -350,45 +439,65 @@ function buildBrief(
 
   const parts: string[] = [];
 
-  if (lifeScore >= 75) parts.push(`Strong week — your Life Score is ${lifeScore}.`);
-  else if (lifeScore >= 50) parts.push(`Steady week — your Life Score is ${lifeScore}.`);
-  else parts.push(`Tough week — your Life Score is ${lifeScore}, but it's fixable.`);
+  if (lifeScore >= 75) parts.push(`Strong day — your Life Score is ${lifeScore}.`);
+  else if (lifeScore >= 50) parts.push(`Steady day — your Life Score is ${lifeScore}.`);
+  else parts.push(`Tough day — your Life Score is ${lifeScore}, but it's fixable.`);
 
   if (best.score !== null) {
     parts.push(`${LABELS[best.key]} is leading at ${best.score} (${best.status.toLowerCase()}).`);
   }
 
   if (worst.key !== best.key && worst.score !== null) {
-    parts.push(`${LABELS[worst.key]} needs attention — ${worst.status.toLowerCase()}.`);
+    parts.push(`${LABELS[worst.key]} is your weakest right now — ${worst.status.toLowerCase()}.`);
   }
 
-  // One concrete next action from the weakest tracked area.
-  const action = nextAction(worst);
-  if (action) parts.push(action);
+  // The smartest single next step comes from the weakest tracked module,
+  // tailored to its real status and the time of day.
+  const tip = smartTip(worst, new Date().getHours());
+  if (tip) parts.push(tip);
 
   return parts.join(" ");
 }
 
-function nextAction(worst: ModuleResult): string | null {
+function smartTip(worst: ModuleResult, hour: number): string | null {
+  const morning = hour < 12;
+  const evening = hour >= 18;
+  const status = worst.status.toLowerCase();
+
   switch (worst.key) {
-    case "fitness":
-      return "A 30-minute workout today would move it the most.";
-    case "people":
+    case "fitness": {
+      if (status.startsWith("0 workout"))
+        return morning
+          ? "Best move today: fit in a 30-minute workout — even a brisk walk counts."
+          : "Best move today: a short 30-minute workout before the day ends.";
+      if (status.includes("sleep"))
+        return "Aim for ~7.5 hours of sleep tonight to lift this fastest.";
+      return "One more workout this week is the single biggest lift here.";
+    }
+    case "people": {
+      if (status.startsWith("reach out"))
+        return `Smartest step: send a quick message now — ${worst.status.replace(/^Reach out to /i, "").replace(/ — overdue$/i, "")} is overdue.`;
       return "A quick message to one person closes the gap fast.";
+    }
     case "mind":
-      return "Even 5 minutes of meditation keeps the streak alive.";
+      return evening
+        ? "Before bed, 5 minutes of meditation or a journal entry keeps momentum."
+        : "Even 5 minutes of meditation now keeps your streak alive.";
     case "finance":
-      return "Logging today's spending keeps the picture accurate.";
+      return "Log today's spending so the savings number stays accurate.";
     case "discipline":
-      return "Check off one habit now to lift the weekly rate.";
+      return morning
+        ? "Knock out your habits early — check one off now to set the tone."
+        : "Check off any remaining habits before the day closes.";
     case "business":
-      return "Knock out one pending task to build momentum.";
+      return "Pick the one pending task that matters most and finish it today.";
     default:
       return null;
   }
 }
 
-function emptyDashboard(): DashboardData {
+/** Safe, never-throwing default used when there is no user or a query fails. */
+function safeDefault(): DashboardData {
   const empty = (key: ModuleKey): ModuleResult => ({
     key,
     score: null,
@@ -404,7 +513,7 @@ function emptyDashboard(): DashboardData {
       discipline: empty("discipline"),
       people: empty("people"),
     },
-    brief:
-      "Welcome to LifeOS. Start logging in any module and your real Life Score will appear here.",
+    trend: [],
+    brief: "Welcome to LifeOS. Start logging your data!",
   };
 }

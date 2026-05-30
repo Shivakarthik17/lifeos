@@ -1,7 +1,8 @@
 import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
-import { getDashboardData } from "@/lib/dashboard";
+import { getDashboardData, type ModuleKey } from "@/lib/dashboard";
+import LifeScoreTrend from "./LifeScoreTrend";
 
 function getGreeting(hour: number) {
   if (hour < 12) return "Good morning";
@@ -108,14 +109,22 @@ export default async function DashboardPage() {
     day: "numeric",
   });
 
-  const { lifeScore, modules: moduleData, brief } = await getDashboardData(
-    user.email ?? ""
-  );
+  // getDashboardData never throws, but guard defensively in case it ever
+  // returns null/undefined so the page can still render.
+  const dashboard = await getDashboardData(user.email ?? "");
+  const lifeScore = dashboard?.lifeScore ?? 0;
+  const moduleData = dashboard?.modules;
+  const brief = dashboard?.brief ?? "Welcome to LifeOS. Start logging your data!";
+  const trend = dashboard?.trend ?? [];
 
   // Merge the visual definitions with the real, computed data.
   const cards = MODULE_UI.map((ui) => {
-    const data = moduleData[ui.key as keyof typeof moduleData];
-    return { ...ui, score: data.score, status: data.status };
+    const data = moduleData?.[ui.key as ModuleKey];
+    return {
+      ...ui,
+      score: data?.score ?? null,
+      status: data?.status ?? "No data yet",
+    };
   });
 
   const trackedCount = cards.filter((c) => c.score !== null).length;
@@ -186,6 +195,13 @@ export default async function DashboardPage() {
             ))}
           </ul>
         </div>
+      </section>
+
+      <section className="mt-8 rounded-2xl border border-border/60 bg-surface/60 p-6 shadow-card">
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted">Life Score — last 7 days</p>
+        </div>
+        <LifeScoreTrend data={trend} />
       </section>
 
       <section className="mt-8">
