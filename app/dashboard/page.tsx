@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
+import { getDashboardData } from "@/lib/dashboard";
 
 function getGreeting(hour: number) {
   if (hour < 12) return "Good morning";
@@ -16,12 +17,10 @@ function getInitials(nameOrEmail: string) {
   return nameOrEmail.slice(0, 2).toUpperCase();
 }
 
-const modules = [
+const MODULE_UI = [
   {
     key: "finance",
     title: "Finance",
-    status: "Savings rate strong this month",
-    progress: 82,
     accent: "from-emerald-500/40 to-emerald-500/0",
     iconBg: "bg-emerald-500/10 text-emerald-300",
     icon: (
@@ -34,8 +33,6 @@ const modules = [
   {
     key: "fitness",
     title: "Fitness",
-    status: "3 workouts done this week",
-    progress: 65,
     accent: "from-rose-500/40 to-rose-500/0",
     iconBg: "bg-rose-500/10 text-rose-300",
     icon: (
@@ -47,8 +44,6 @@ const modules = [
   {
     key: "mind",
     title: "Mind",
-    status: "5-day meditation streak",
-    progress: 78,
     accent: "from-violet-500/40 to-violet-500/0",
     iconBg: "bg-violet-500/10 text-violet-300",
     icon: (
@@ -60,8 +55,6 @@ const modules = [
   {
     key: "business",
     title: "Business",
-    status: "2 milestones due Friday",
-    progress: 70,
     accent: "from-amber-500/40 to-amber-500/0",
     iconBg: "bg-amber-500/10 text-amber-300",
     icon: (
@@ -74,8 +67,6 @@ const modules = [
   {
     key: "discipline",
     title: "Discipline",
-    status: "100% habits hit yesterday",
-    progress: 88,
     accent: "from-sky-500/40 to-sky-500/0",
     iconBg: "bg-sky-500/10 text-sky-300",
     icon: (
@@ -89,8 +80,6 @@ const modules = [
   {
     key: "people",
     title: "People",
-    status: "Reach out to Anil — overdue 3d",
-    progress: 60,
     accent: "from-pink-500/40 to-pink-500/0",
     iconBg: "bg-pink-500/10 text-pink-300",
     icon: (
@@ -119,7 +108,17 @@ export default async function DashboardPage() {
     day: "numeric",
   });
 
-  const lifeScore = 74;
+  const { lifeScore, modules: moduleData, brief } = await getDashboardData(
+    user.email ?? ""
+  );
+
+  // Merge the visual definitions with the real, computed data.
+  const cards = MODULE_UI.map((ui) => {
+    const data = moduleData[ui.key as keyof typeof moduleData];
+    return { ...ui, score: data.score, status: data.status };
+  });
+
+  const trackedCount = cards.filter((c) => c.score !== null).length;
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8 md:px-10 md:py-10">
@@ -160,23 +159,27 @@ export default async function DashboardPage() {
             />
           </div>
           <p className="mt-4 text-xs text-muted">
-            Up 6 points this week. Discipline is pulling the average up.
+            {trackedCount > 0
+              ? `Live score from your real data across ${trackedCount} of 6 modules.`
+              : "Start logging in any module to build your score."}
           </p>
         </div>
 
         <div className="rounded-2xl border border-border/60 bg-surface/60 p-6 shadow-card lg:col-span-2">
           <p className="text-sm text-muted">Module progress</p>
           <ul className="mt-4 space-y-3">
-            {modules.map((m) => (
+            {cards.map((m) => (
               <li key={m.key}>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-white">{m.title}</span>
-                  <span className="text-muted">{m.progress}%</span>
+                  <span className="text-muted">
+                    {m.score === null ? "—" : `${m.score}%`}
+                  </span>
                 </div>
                 <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-white/5">
                   <div
                     className="h-full rounded-full bg-accent"
-                    style={{ width: `${m.progress}%` }}
+                    style={{ width: `${m.score ?? 0}%` }}
                   />
                 </div>
               </li>
@@ -190,7 +193,7 @@ export default async function DashboardPage() {
           Modules
         </h2>
         <div className="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {modules.map((m) => (
+          {cards.map((m) => (
             <article
               key={m.key}
               className="group relative overflow-hidden rounded-2xl border border-border/60 bg-surface/60 p-5 shadow-card transition-colors hover:border-accent/50"
@@ -208,8 +211,10 @@ export default async function DashboardPage() {
                 </div>
               </div>
               <div className="relative mt-4 flex items-center justify-between text-xs">
-                <span className="text-muted">This week</span>
-                <span className="font-medium text-white">{m.progress}%</span>
+                <span className="text-muted">Score</span>
+                <span className="font-medium text-white">
+                  {m.score === null ? "Not tracked" : `${m.score}%`}
+                </span>
               </div>
             </article>
           ))}
@@ -223,17 +228,12 @@ export default async function DashboardPage() {
               <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
             </svg>
           </span>
-          <h2 className="text-base font-semibold text-white">AI daily brief</h2>
+          <h2 className="text-base font-semibold text-white">Daily brief</h2>
         </div>
-        <p className="mt-4 text-sm leading-relaxed text-muted">
-          You&apos;re on track this week — Discipline (88%) and Finance (82%) are
-          pulling the average up. Fitness and People are lagging; a 30-min
-          workout today and a quick check-in with Anil would move both
-          meaningfully. Tomorrow&apos;s focus suggestion: deep-work block 9–11 AM
-          on Business milestones due Friday.
-        </p>
+        <p className="mt-4 text-sm leading-relaxed text-muted">{brief}</p>
         <p className="mt-3 text-xs text-muted">
-          Personalized briefs go live once we hook up the model — placeholder for now.
+          Built from your real data. Connect an AI model later for deeper,
+          conversational insights.
         </p>
       </section>
     </div>

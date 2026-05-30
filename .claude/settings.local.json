@@ -13,7 +13,10 @@
       "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:3000/api/finance/transactions\" -ErrorAction Stop; \"TX STATUS: $\\($r.StatusCode\\)\" } catch { \"TX STATUS: $\\($_.Exception.Response.StatusCode.value__\\)\" }; try { $r = Invoke-WebRequest -Uri \"http://localhost:3000/api/finance/budget\" -ErrorAction Stop; \"BG STATUS: $\\($r.StatusCode\\)\" } catch { \"BG STATUS: $\\($_.Exception.Response.StatusCode.value__\\)\" })",
       "PowerShell(Probe *)",
       "Bash(node *)",
-      "PowerShell(Probe PATCH *)"
+      "PowerShell(Probe PATCH *)",
+      "WebSearch",
+      "Bash(npx tsc *)",
+      "Bash(npx next *)"
     ]
   }
 }
