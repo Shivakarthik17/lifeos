@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { getDashboardData, type ModuleKey } from "@/lib/dashboard";
 import LifeScoreTrend from "./LifeScoreTrend";
+import AICoach from "./AICoach";
 
 function getGreeting(hour: number) {
   if (hour < 12) return "Good morning";
@@ -248,10 +249,12 @@ export default async function DashboardPage() {
         </div>
         <p className="mt-4 text-sm leading-relaxed text-muted">{brief}</p>
         <p className="mt-3 text-xs text-muted">
-          Built from your real data. Connect an AI model later for deeper,
+          Built from your real data. Ask the AI coach below for deeper,
           conversational insights.
         </p>
       </section>
+
+      <AICoach />
     </div>
   );
 }
