@@ -25,7 +25,7 @@ export default async function DashboardLayout({
     <div className="min-h-screen bg-background text-white">
       <Sidebar />
       {/* Extra bottom padding on mobile so content clears the bottom nav. */}
-      <main className="pb-20 md:ml-[220px] md:pb-0">
+      <main className="pb-24 md:ml-[220px] md:pb-0">
         <Suspense fallback={<ContentFallback />}>{children}</Suspense>
       </main>
       <BottomNav />
