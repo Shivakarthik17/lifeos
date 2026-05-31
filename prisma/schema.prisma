@@ -40,6 +40,8 @@ model User {
   interactions   Interaction[]
   communicationChallenges CommunicationChallenge[]
   socialEnergyLogs SocialEnergyLog[]
+  meetings  Meeting[]
+  todoItems TodoItem[]
 }
 
 model Workout {
@@ -299,4 +301,35 @@ model SocialEnergyLog {
   energy    Int
   notes     String?
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Meeting {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  location    String?
+  date        DateTime
+  startTime   String
+  endTime     String?
+  reminderMin Int      @default(30)
+  category    String   @default("work")
+  color       String   @default("#7F77DD")
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model TodoItem {
+  id          String    @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  priority    String    @default("medium")
+  category    String    @default("personal")
+  dueDate     DateTime?
+  dueTime     String?
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

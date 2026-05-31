@@ -53,6 +53,14 @@ export function TargetIcon(props: IconProps) {
     </svg>
   );
 }
+export function CalendarIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect x="3" y="4" width="18" height="17" rx="2" />
+      <path d="M3 9h18M8 2v4M16 2v4" />
+    </svg>
+  );
+}
 export function PeopleIcon(props: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
@@ -77,4 +85,5 @@ export const navItems: NavItem[] = [
   { href: "/dashboard/business", label: "Business", Icon: BriefcaseIcon },
   { href: "/dashboard/discipline", label: "Discipline", Icon: TargetIcon },
   { href: "/dashboard/people", label: "People", Icon: PeopleIcon },
+  { href: "/dashboard/planner", label: "Planner", Icon: CalendarIcon },
 ];

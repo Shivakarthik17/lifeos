@@ -1,9 +1,74 @@
 import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import { getDashboardData, type ModuleKey } from "@/lib/dashboard";
 import LifeScoreTrend from "./LifeScoreTrend";
 import AICoach from "./AICoach";
+
+const CATEGORY_COLORS: Record<string, string> = {
+  work: "#7F77DD",
+  personal: "#2DD4BF",
+  health: "#34D399",
+  family: "#F472B6",
+  other: "#9AA3C7",
+};
+
+function formatTimeLabel(time: string) {
+  const m = time.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return time;
+  const h = parseInt(m[1], 10);
+  const ampm = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${m[2]} ${ampm}`;
+}
+
+/**
+ * Today's meetings + pending todo count for the dashboard widget.
+ * Never throws — degrades to empty data so the dashboard still renders.
+ */
+async function getPlannerWidget(email: string) {
+  try {
+    if (!email) return { meetings: [], pendingTodos: 0 };
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+    if (!user?.id) return { meetings: [], pendingTodos: 0 };
+
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    // Pull a window around today and filter by local day to stay robust
+    // against how meeting dates are stored (UTC midnight).
+    const windowStart = new Date(start);
+    windowStart.setDate(windowStart.getDate() - 1);
+    const windowEnd = new Date(start);
+    windowEnd.setDate(windowEnd.getDate() + 2);
+
+    const [rawMeetings, pendingTodos] = await Promise.all([
+      prisma.meeting.findMany({
+        where: { userId: user.id, date: { gte: windowStart, lt: windowEnd } },
+        orderBy: { startTime: "asc" },
+      }),
+      prisma.todoItem.count({ where: { userId: user.id, completed: false } }),
+    ]);
+
+    const meetings = rawMeetings.filter((m) => {
+      const d = new Date(m.date);
+      return (
+        d.getFullYear() === start.getFullYear() &&
+        d.getMonth() === start.getMonth() &&
+        d.getDate() === start.getDate()
+      );
+    });
+
+    return { meetings, pendingTodos };
+  } catch (error) {
+    console.error("Planner widget error:", error);
+    return { meetings: [], pendingTodos: 0 };
+  }
+}
 
 // Cache the rendered dashboard for 60s to reduce repeated DB reads.
 export const revalidate = 60;
@@ -115,7 +180,10 @@ export default async function DashboardPage() {
 
   // getDashboardData never throws, but guard defensively in case it ever
   // returns null/undefined so the page can still render.
-  const dashboard = await getDashboardData(user.email ?? "");
+  const [dashboard, planner] = await Promise.all([
+    getDashboardData(user.email ?? ""),
+    getPlannerWidget(user.email ?? ""),
+  ]);
   const lifeScore = dashboard?.lifeScore ?? 0;
   const moduleData = dashboard?.modules;
   const brief = dashboard?.brief ?? "Welcome to LifeOS. Start logging your data!";
@@ -198,6 +266,64 @@ export default async function DashboardPage() {
               </li>
             ))}
           </ul>
+        </div>
+      </section>
+
+      <section className="mt-8 rounded-2xl border border-border/60 bg-surface/60 p-6 shadow-card">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-soft text-accent">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4">
+                <rect x="3" y="4" width="18" height="17" rx="2" />
+                <path d="M3 9h18M8 2v4M16 2v4" />
+              </svg>
+            </span>
+            <h2 className="text-base font-semibold text-white">Today&apos;s schedule</h2>
+          </div>
+          <Link
+            href="/dashboard/planner"
+            className="text-xs font-medium text-accent transition-colors hover:text-accent-hover"
+          >
+            Open planner →
+          </Link>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-stretch">
+          <div className="flex-1">
+            {planner.meetings.length === 0 ? (
+              <p className="text-sm text-muted">No meetings today</p>
+            ) : (
+              <ul className="space-y-2">
+                {planner.meetings.map((m) => (
+                  <li
+                    key={m.id}
+                    className="flex items-center gap-3 rounded-xl border border-border/60 bg-surface-2/40 p-3"
+                  >
+                    <span
+                      className="h-8 w-1 flex-shrink-0 rounded-full"
+                      style={{ backgroundColor: m.color ?? CATEGORY_COLORS[m.category] ?? "#7F77DD" }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-white">{m.title}</p>
+                      <p className="mt-0.5 text-xs text-muted">
+                        {formatTimeLabel(m.startTime)}
+                        {m.endTime ? ` – ${formatTimeLabel(m.endTime)}` : ""}
+                        {m.location ? ` · ${m.location}` : ""}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <Link
+            href="/dashboard/planner"
+            className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-surface-2/40 p-4 transition-colors hover:border-accent/50 sm:w-48 sm:flex-col sm:items-start sm:justify-center"
+          >
+            <span className="text-xs uppercase tracking-wider text-muted">Pending to-dos</span>
+            <span className="text-3xl font-semibold text-white">{planner.pendingTodos}</span>
+          </Link>
         </div>
       </section>
 
