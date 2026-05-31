@@ -5,22 +5,24 @@ import { prisma } from "@/lib/prisma";
 
 const VALID_TYPES = new Set(["income", "expense"]);
 
-export async function GET() {
+async function requireUserId() {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+  if (!session?.user?.email) return null;
   const user = await prisma.user.findUnique({
     where: { email: session.user.email },
     select: { id: true },
   });
-  if (!user) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  return user?.id ?? null;
+}
+
+export async function GET() {
+  const userId = await requireUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const transactions = await prisma.transaction.findMany({
-    where: { userId: user.id },
+    where: { userId },
     orderBy: { date: "desc" },
   });
 
@@ -28,17 +30,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.email) {
+  const userId = await requireUserId();
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { email: session.user.email },
-    select: { id: true },
-  });
-  if (!user) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
 
   let body: unknown;
@@ -74,7 +68,7 @@ export async function POST(req: Request) {
 
   const transaction = await prisma.transaction.create({
     data: {
-      userId: user.id,
+      userId,
       amount: amountNum,
       category: category.trim(),
       description: typeof description === "string" && description.trim() ? description.trim() : null,
@@ -87,17 +81,9 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.email) {
+  const userId = await requireUserId();
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { email: session.user.email },
-    select: { id: true },
-  });
-  if (!user) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
 
   const id = new URL(req.url).searchParams.get("id");
@@ -106,7 +92,7 @@ export async function DELETE(req: Request) {
   }
 
   const result = await prisma.transaction.deleteMany({
-    where: { id, userId: user.id },
+    where: { id, userId },
   });
   if (result.count === 0) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -116,17 +102,9 @@ export async function DELETE(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.email) {
+  const userId = await requireUserId();
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { email: session.user.email },
-    select: { id: true },
-  });
-  if (!user) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
 
   let body: unknown;
@@ -193,7 +171,7 @@ export async function PATCH(req: Request) {
   }
 
   const result = await prisma.transaction.updateMany({
-    where: { id, userId: user.id },
+    where: { id, userId },
     data,
   });
   if (result.count === 0) {

@@ -358,7 +358,7 @@ function MeditationTab({
         const res = await fetch("/api/mind/meditation", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ minutes }),
+          body: JSON.stringify({ minutes, date: new Date().toISOString() }),
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
@@ -858,6 +858,7 @@ function FocusTab({
           body: JSON.stringify({
             minutes,
             task: taskName.trim() || undefined,
+            date: new Date().toISOString(),
           }),
         });
         if (!res.ok) {

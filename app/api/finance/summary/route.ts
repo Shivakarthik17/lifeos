@@ -9,18 +9,20 @@ function monthBounds(year: number, month: number) {
   return { start, end };
 }
 
-export async function GET() {
+async function requireUserId() {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+  if (!session?.user?.email) return null;
   const user = await prisma.user.findUnique({
     where: { email: session.user.email },
     select: { id: true },
   });
-  if (!user) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  return user?.id ?? null;
+}
+
+export async function GET() {
+  const userId = await requireUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const now = new Date();
@@ -35,14 +37,14 @@ export async function GET() {
 
   const [curTx, prevTx, budgets] = await Promise.all([
     prisma.transaction.findMany({
-      where: { userId: user.id, date: { gte: curStart, lt: curEnd } },
+      where: { userId, date: { gte: curStart, lt: curEnd } },
       orderBy: { date: "desc" },
     }),
     prisma.transaction.findMany({
-      where: { userId: user.id, date: { gte: prevStart, lt: prevEnd } },
+      where: { userId, date: { gte: prevStart, lt: prevEnd } },
     }),
     prisma.budget.findMany({
-      where: { userId: user.id, month: currentMonth, year: currentYear },
+      where: { userId, month: currentMonth, year: currentYear },
     }),
   ]);
 

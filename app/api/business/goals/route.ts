@@ -117,6 +117,9 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }
     data.status = status;
+    // Stamp completion time so the business trend can reflect when a goal
+    // was actually finished; clear it if the goal is reopened.
+    data.completedAt = status === "completed" ? new Date() : null;
   }
   if (title !== undefined) {
     if (typeof title !== "string" || !title.trim()) {

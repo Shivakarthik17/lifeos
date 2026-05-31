@@ -182,6 +182,7 @@ model Goal {
   targetDate  DateTime?
   status      String   @default("active")
   progress    Int      @default(0)
+  completedAt DateTime?
   createdAt   DateTime @default(now())
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

@@ -17,7 +17,9 @@
       "WebSearch",
       "Bash(npx tsc *)",
       "Bash(npx next *)",
-      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('candidates',[{}]\\)[0].get\\('content',{}\\).get\\('parts',[{}]\\)[0].get\\('text','NO TEXT:'+json.dumps\\(d\\)[:300]\\)\\)\")"
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('candidates',[{}]\\)[0].get\\('content',{}\\).get\\('parts',[{}]\\)[0].get\\('text','NO TEXT:'+json.dumps\\(d\\)[:300]\\)\\)\")",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\shiva.karthik.seeni\\\\claudeProjects\\\\practise1_terminal\\\\app\\\\api\" -Recurse -Filter \"route.ts\")",
+      "Bash(Select-Object -ExpandProperty FullName)"
     ]
   }
 }

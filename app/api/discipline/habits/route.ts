@@ -20,7 +20,7 @@ export async function GET() {
   }
   const habits = await prisma.habit.findMany({
     where: { userId },
-    orderBy: { createdAt: "asc" },
+    orderBy: { createdAt: "desc" },
   });
   return NextResponse.json({ habits });
 }

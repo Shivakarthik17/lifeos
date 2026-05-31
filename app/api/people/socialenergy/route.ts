@@ -44,7 +44,13 @@ export async function POST(req: Request) {
     notes?: unknown;
   };
 
-  if (typeof energy !== "number" || !Number.isFinite(energy) || energy < 1 || energy > 10) {
+  const energyNum =
+    typeof energy === "number"
+      ? energy
+      : typeof energy === "string" && energy.trim()
+        ? Number(energy)
+        : NaN;
+  if (!Number.isFinite(energyNum) || energyNum < 1 || energyNum > 10) {
     return NextResponse.json(
       { error: "Energy must be a number between 1 and 10" },
       { status: 400 }
@@ -63,7 +69,7 @@ export async function POST(req: Request) {
   const log = await prisma.socialEnergyLog.create({
     data: {
       userId,
-      energy: Math.round(energy),
+      energy: Math.round(energyNum),
       date: parsedDate,
       notes: typeof notes === "string" && notes.trim() ? notes.trim() : null,
     },

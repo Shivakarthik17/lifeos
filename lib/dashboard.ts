@@ -71,7 +71,7 @@ interface RawData {
   journal: { date: Date; mood: number }[];
   habits: { id: string; frequency: string; createdAt: Date }[];
   checkIns: { habitId: string; date: Date }[];
-  goals: { status: string; progress: number; createdAt: Date }[];
+  goals: { status: string; progress: number; createdAt: Date; completedAt: Date | null }[];
   tasks: { status: string; createdAt: Date }[];
   interactions: { date: Date; contactId: string }[];
   contacts: { id: string; name: string; priority: string; createdAt: Date }[];
@@ -200,7 +200,8 @@ function computeModules(raw: RawData, ref: Date): Record<ModuleKey, ModuleResult
   );
   const business = scoreBusiness(
     raw.goals.filter((g) => createdBy(g.createdAt)),
-    raw.tasks.filter((t) => createdBy(t.createdAt))
+    raw.tasks.filter((t) => createdBy(t.createdAt)),
+    endEx
   );
   const discipline = scoreDiscipline(
     raw.habits.filter((h) => createdBy(h.createdAt)),
@@ -326,10 +327,10 @@ function scoreMind(
 }
 
 function scoreBusiness(
-  goals: { status: string; progress: number }[],
-  tasks: { status: string }[]
+  goals: { status: string; progress: number; completedAt: Date | null }[],
+  tasks: { status: string }[],
+  endEx: Date
 ): ModuleResult {
-  const activeGoals = goals.filter((g) => g.status === "active");
   const done = tasks.filter((t) => t.status === "done" || t.status === "completed");
   const pending = tasks.filter(
     (t) => t.status !== "done" && t.status !== "completed"
@@ -339,13 +340,30 @@ function scoreBusiness(
     return { key: "business", score: null, status: "No goals or tasks yet" };
   }
 
+  // A goal counts as completed "as of" the reference day only when its
+  // completedAt timestamp falls before the end of that day. This makes the
+  // historical trend step up on the day each goal was actually finished,
+  // instead of showing today's status for every past day.
+  const completedByThen = (g: { completedAt: Date | null }) =>
+    g.completedAt !== null && new Date(g.completedAt) < endEx;
+
   const parts: number[] = [];
-  if (activeGoals.length) parts.push(clamp(avg(activeGoals.map((g) => g.progress))));
+  if (goals.length) {
+    // Each goal contributes 100 once completed (by this day), otherwise its
+    // current progress as partial credit.
+    const goalScore = avg(
+      goals.map((g) => (completedByThen(g) ? 100 : clamp(g.progress)))
+    );
+    parts.push(clamp(goalScore));
+  }
   if (tasks.length) parts.push(clamp((done.length / tasks.length) * 100));
 
-  const status = pending.length
-    ? `${pending.length} task${pending.length === 1 ? "" : "s"} pending, ${activeGoals.length} active goal${activeGoals.length === 1 ? "" : "s"}`
-    : `${activeGoals.length} active goal${activeGoals.length === 1 ? "" : "s"}, all tasks done`;
+  const completedCount = goals.filter(completedByThen).length;
+  const status = goals.length
+    ? `${completedCount}/${goals.length} goal${goals.length === 1 ? "" : "s"} completed${
+        pending.length ? `, ${pending.length} task${pending.length === 1 ? "" : "s"} pending` : ""
+      }`
+    : `${pending.length} task${pending.length === 1 ? "" : "s"} pending`;
 
   return { key: "business", score: clamp(avg(parts)), status };
 }
